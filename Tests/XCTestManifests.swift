@@ -2233,6 +2233,8 @@ extension RulesTests {
         ("testVarModifiersCorrected", testVarModifiersCorrected),
         ("testVarNonRedundantTypeDoesNothing", testVarNonRedundantTypeDoesNothing),
         ("testVarNonRedundantTypeDoesNothingExplicitType", testVarNonRedundantTypeDoesNothingExplicitType),
+        ("testVarRedundantArrayTypeRemoval", testVarRedundantArrayTypeRemoval),
+        ("testVarRedundantDictionaryTypeRemoval", testVarRedundantDictionaryTypeRemoval),
         ("testVarRedundantTypeRemoval", testVarRedundantTypeRemoval),
         ("testVarRedundantTypeRemovalExplicitType", testVarRedundantTypeRemovalExplicitType),
         ("testVoidArgumentConvertedToEmptyParens", testVoidArgumentConvertedToEmptyParens),
