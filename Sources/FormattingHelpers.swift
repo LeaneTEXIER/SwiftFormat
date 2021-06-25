@@ -755,6 +755,15 @@ extension Formatter {
         case `internal`
         case `fileprivate`
         case `private`
+        case nestedType
+        case staticProperty
+        case staticPropertyWithBody
+        case classPropertyWithBody
+        case instanceProperty = "Property"
+        case instancePropertyWithBody
+        case staticMethod
+        case classMethod
+        case instanceMethod
 
         init(from visibility: Visibility) {
             switch visibility {
@@ -795,29 +804,11 @@ extension Formatter {
         }
     }
 
-    /// Types of declarations that can be present within an individual category
-    enum DeclarationType: String, CaseIterable {
-        case nestedType
-        case staticProperty
-        case staticPropertyWithBody
-        case classPropertyWithBody
-        case instanceProperty
-        case instancePropertyWithBody
-        case staticMethod
-        case classMethod
-        case instanceMethod
-
-        /// The comment tokens that should precede all declarations in this category
-        func markComment(from template: String) -> String? {
-            return "// \(template.replacingOccurrences(of: "%c", with: rawValue.capitalized))"
-        }
-    }
-
-    static let categoryOrdering: [Category] = [
-        .beforeMarks, .lifecycle, .open, .public, .internal, .fileprivate, .private,
+    static let accessLevelOrdering: [Category] = [
+        .lifecycle, .open, .public, .internal, .fileprivate, .private,
     ]
 
-    static let categorySubordering: [DeclarationType] = [
+    static let categoryOrdering: [Category] = [
         .nestedType, .staticProperty, .staticPropertyWithBody, .classPropertyWithBody,
         .instanceProperty, .instancePropertyWithBody, .staticMethod, .classMethod, .instanceMethod,
     ]
@@ -902,7 +893,7 @@ extension Formatter {
     }
 
     /// The `DeclarationType` of the given `Declaration`
-    func type(of declaration: Declaration) -> DeclarationType? {
+    func type(of declaration: Declaration) -> Category? {
         switch declaration {
         case .type:
             return .nestedType
@@ -1146,7 +1137,7 @@ extension Formatter {
         let bodyWithoutCategorySeparators = removeExistingCategorySeparators(from: typeDeclaration.body)
 
         // Categorize each of the declarations into their primary groups
-        typealias CategorizedDeclarations = [(declaration: Declaration, category: Category?, type: DeclarationType?)]
+        typealias CategorizedDeclarations = [(declaration: Declaration, category: Category, subCategory: Category?)]
 
         let categorizedDeclarations = bodyWithoutCategorySeparators.map {
             (declaration: $0, category: category(of: $0), type: type(of: $0))
@@ -1163,26 +1154,26 @@ extension Formatter {
                     let (lhsOriginalIndex, lhs) = lhs
                     let (rhsOriginalIndex, rhs) = rhs
 
-                    // Within individual categories (excluding .beforeMarks), sort by the declaration type
-                    if sortByType,
-                       lhs.category != .beforeMarks,
-                       rhs.category != .beforeMarks,
-                       let lhsType = lhs.type,
-                       let rhsType = rhs.type,
-                       let lhsTypeSortOrder = Formatter.categorySubordering.index(of: lhsType),
-                       let rhsTypeSortOrder = Formatter.categorySubordering.index(of: rhsType),
-                       lhsTypeSortOrder != rhsTypeSortOrder
-                    {
-                        return lhsTypeSortOrder < rhsTypeSortOrder
-                    }
-
                     // Sort primarily by category
                     if sortByCategory,
-                       let lhsCategorySortOrder = Formatter.categoryOrdering.index(of: lhs.category!),
-                       let rhsCategorySortOrder = Formatter.categoryOrdering.index(of: rhs.category!),
+                       let lhsCategorySortOrder = Formatter.categoryOrdering.index(of: lhs.category),
+                       let rhsCategorySortOrder = Formatter.categoryOrdering.index(of: rhs.category),
                        lhsCategorySortOrder != rhsCategorySortOrder
                     {
                         return lhsCategorySortOrder < rhsCategorySortOrder
+                    }
+                    
+                    // Within individual categories (excluding .beforeMarks), sort by sub category
+                    if sortByType,
+                       lhs.category != .beforeMarks,
+                       rhs.category != .beforeMarks,
+                       let lhsSubCategory = lhs.subCategory,
+                       let rhsSubCategory = rhs.subCategory,
+                       let lhsTypeSortOrder = Formatter.categorySubordering.index(of: lhsSubCategory),
+                       let rhsTypeSortOrder = Formatter.categorySubordering.index(of: rhsSubCategory),
+                       lhsTypeSortOrder != rhsTypeSortOrder
+                    {
+                        return lhsTypeSortOrder < rhsTypeSortOrder
                     }
 
                     // Respect the original declaration ordering when the categories and types are the same
@@ -1204,7 +1195,7 @@ extension Formatter {
             /// the parameters struct's synthesized memberwise initializer
             func affectsSynthesizedMemberwiseInitializer(
                 _ declaration: Declaration,
-                _ type: DeclarationType?
+                _ subCategory: Category?
             ) -> Bool {
                 switch type {
                 case .instanceProperty?:
@@ -1242,11 +1233,11 @@ extension Formatter {
                 _ rhs: CategorizedDeclarations
             ) -> Bool {
                 let lhsPropertiesOrder = lhs
-                    .filter { affectsSynthesizedMemberwiseInitializer($0.declaration, $0.type) }
+                    .filter { affectsSynthesizedMemberwiseInitializer($0.declaration, $0.subCategory) }
                     .map { $0.declaration }
 
                 let rhsPropertiesOrder = rhs
-                    .filter { affectsSynthesizedMemberwiseInitializer($0.declaration, $0.type) }
+                    .filter { affectsSynthesizedMemberwiseInitializer($0.declaration, $0.subCategory) }
                     .map { $0.declaration }
 
                 return lhsPropertiesOrder == rhsPropertiesOrder
@@ -1267,13 +1258,13 @@ extension Formatter {
         }
 
         // Insert comments to separate the categories
-        let numberOfCategories = Formatter.categorySubordering.filter { category in
-            sortedDeclarations.contains(where: { $0.type == category })
+        let numberOfCategories = Formatter.categoryOrdering.filter { category in
+            sortedDeclarations.contains(where: { $0.category == category })
         }.count
 
-        for category in Formatter.categorySubordering {
+        for category in Formatter.categoryOrdering {
             guard let indexOfFirstDeclaration = sortedDeclarations
-                .firstIndex(where: { $0.type == category })
+                .firstIndex(where: { $0.category == category })
             else { continue }
 
             // Build the MARK declaration, but only when there is more than one category present.
@@ -1300,7 +1291,7 @@ extension Formatter {
             }
 
             // Insert newlines to separate declaration types
-            for declarationType in Formatter.categoryOrdering {
+            for declarationType in Formatter.categorySubordering {
                 guard let indexOfLastDeclarationWithType = sortedDeclarations
                     .lastIndex(where: { $0.type == category && $0.category == declarationType }),
                     indexOfLastDeclarationWithType != sortedDeclarations.indices.last
