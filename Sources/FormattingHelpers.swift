@@ -796,7 +796,7 @@ extension Formatter {
     }
 
     /// Types of declarations that can be present within an individual category
-    enum DeclarationType {
+    enum DeclarationType: String, CaseIterable {
         case nestedType
         case staticProperty
         case staticPropertyWithBody
@@ -806,6 +806,11 @@ extension Formatter {
         case staticMethod
         case classMethod
         case instanceMethod
+
+        /// The comment tokens that should precede all declarations in this category
+        func markComment(from template: String) -> String? {
+            return "// \(template.replacingOccurrences(of: "%c", with: rawValue.capitalized))"
+        }
     }
 
     static let categoryOrdering: [Category] = [
@@ -1141,7 +1146,7 @@ extension Formatter {
         let bodyWithoutCategorySeparators = removeExistingCategorySeparators(from: typeDeclaration.body)
 
         // Categorize each of the declarations into their primary groups
-        typealias CategorizedDeclarations = [(declaration: Declaration, category: Category, type: DeclarationType?)]
+        typealias CategorizedDeclarations = [(declaration: Declaration, category: Category?, type: DeclarationType?)]
 
         let categorizedDeclarations = bodyWithoutCategorySeparators.map {
             (declaration: $0, category: category(of: $0), type: type(of: $0))
@@ -1158,15 +1163,6 @@ extension Formatter {
                     let (lhsOriginalIndex, lhs) = lhs
                     let (rhsOriginalIndex, rhs) = rhs
 
-                    // Sort primarily by category
-                    if sortByCategory,
-                       let lhsCategorySortOrder = Formatter.categoryOrdering.index(of: lhs.category),
-                       let rhsCategorySortOrder = Formatter.categoryOrdering.index(of: rhs.category),
-                       lhsCategorySortOrder != rhsCategorySortOrder
-                    {
-                        return lhsCategorySortOrder < rhsCategorySortOrder
-                    }
-
                     // Within individual categories (excluding .beforeMarks), sort by the declaration type
                     if sortByType,
                        lhs.category != .beforeMarks,
@@ -1178,6 +1174,15 @@ extension Formatter {
                        lhsTypeSortOrder != rhsTypeSortOrder
                     {
                         return lhsTypeSortOrder < rhsTypeSortOrder
+                    }
+
+                    // Sort primarily by category
+                    if sortByCategory,
+                       let lhsCategorySortOrder = Formatter.categoryOrdering.index(of: lhs.category!),
+                       let rhsCategorySortOrder = Formatter.categoryOrdering.index(of: rhs.category!),
+                       lhsCategorySortOrder != rhsCategorySortOrder
+                    {
+                        return lhsCategorySortOrder < rhsCategorySortOrder
                     }
 
                     // Respect the original declaration ordering when the categories and types are the same
@@ -1262,13 +1267,13 @@ extension Formatter {
         }
 
         // Insert comments to separate the categories
-        let numberOfCategories = Formatter.categoryOrdering.filter { category in
-            sortedDeclarations.contains(where: { $0.category == category })
+        let numberOfCategories = Formatter.categorySubordering.filter { category in
+            sortedDeclarations.contains(where: { $0.type == category })
         }.count
 
-        for category in Formatter.categoryOrdering {
+        for category in Formatter.categorySubordering {
             guard let indexOfFirstDeclaration = sortedDeclarations
-                .firstIndex(where: { $0.category == category })
+                .firstIndex(where: { $0.type == category })
             else { continue }
 
             // Build the MARK declaration, but only when there is more than one category present.
@@ -1282,7 +1287,7 @@ extension Formatter {
                 let markDeclaration = tokenize("\(indentation)\(markComment)\n\n")
 
                 sortedDeclarations.insert(
-                    (.declaration(kind: "comment", tokens: markDeclaration), category, nil),
+                    (.declaration(kind: "comment", tokens: markDeclaration), nil, category),
                     at: indexOfFirstDeclaration
                 )
 
@@ -1295,9 +1300,9 @@ extension Formatter {
             }
 
             // Insert newlines to separate declaration types
-            for declarationType in Formatter.categorySubordering {
+            for declarationType in Formatter.categoryOrdering {
                 guard let indexOfLastDeclarationWithType = sortedDeclarations
-                    .lastIndex(where: { $0.category == category && $0.type == declarationType }),
+                    .lastIndex(where: { $0.type == category && $0.category == declarationType }),
                     indexOfLastDeclarationWithType != sortedDeclarations.indices.last
                 else { continue }
 
