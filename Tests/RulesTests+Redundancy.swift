@@ -1659,7 +1659,8 @@ extension RulesTests {
 
     func testNoRemoveReturnAfterParentheses() {
         let input = "if let foo = (bar as? String) { return foo }"
-        testFormatting(for: input, rule: FormatRules.redundantReturn)
+        testFormatting(for: input, rule: FormatRules.redundantReturn,
+                       exclude: ["redundantParens"])
     }
 
     func testNoRemoveReturnInTupleVarGetter() {
@@ -4015,6 +4016,19 @@ extension RulesTests {
 
     func testMalformedFunctionNotMisidentifiedAsClosure() {
         let input = "func foo() { bar(5) {} in }"
+        testFormatting(for: input, rule: FormatRules.unusedArguments)
+    }
+
+    func testUnownedUnsafeNotStripped() {
+        let input = """
+        func foo() {
+            var num = 0
+            Just(1)
+                .sink { [unowned(unsafe) self] in
+                    num += $0
+                }
+        }
+        """
         testFormatting(for: input, rule: FormatRules.unusedArguments)
     }
 

@@ -1,5 +1,19 @@
 # Change Log
 
+## [0.48.9](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.48.9) (2020-07-09)
+
+- Fixed regression introduced in 0.48.7 where parens around prefix expressions were incorrectly removed
+
+## [0.48.8](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.48.8) (2020-07-08)
+
+- Fixed regression introduced in 0.48.7 where parens around operator literals were incorrectly removed
+
+## [0.48.7](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.48.7) (2020-07-07)
+
+- Fixed bug where `redundantParens` rule could introduce an ambiguity by removing parens around a range argument
+- Fixed bug where `unowned(unsafe)` capture argument would be mangled by `unusedArguments` rule
+- Fixed spurious double-indenting of trailing closures in some cases
+
 ## [0.48.6](https://github.com/nicklockwood/SwiftFormat/releases/tag/0.48.6) (2020-06-23)
 
 - Fixed bug where `actor` variables were incorrectly interpreted as a keyword in certain cases

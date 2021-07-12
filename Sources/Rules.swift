@@ -1040,6 +1040,7 @@ public struct _FormatRules {
     /// Adds a blank line around MARK: comments
     public let blankLinesAroundMark = FormatRule(
         help: "Insert blank line before and after `MARK:` comments.",
+        options: ["lineaftermarks"],
         sharedOptions: ["linebreaks"]
     ) { formatter in
         formatter.forEachToken { i, token in
@@ -1048,7 +1049,8 @@ public struct _FormatRules {
                   formatter.tokens[startIndex] == .startOfScope("//") else { return }
             if let nextIndex = formatter.index(of: .linebreak, after: i),
                let nextToken = formatter.next(.nonSpace, after: nextIndex),
-               !nextToken.isLinebreak, nextToken != .endOfScope("}")
+               !nextToken.isLinebreak, nextToken != .endOfScope("}"),
+               formatter.options.lineAfterMarks
             {
                 formatter.insertLinebreak(at: nextIndex)
             }
@@ -1263,7 +1265,9 @@ public struct _FormatRules {
                        let linebreakIndex = formatter.tokens[scopeStart ..< prevIndex].firstIndex(where: {
                            $0.isLinebreak
                        }),
-                       formatter.last(.nonSpaceOrCommentOrLinebreak, before: linebreakIndex) != .delimiter(",")
+                       formatter.last(.nonSpaceOrCommentOrLinebreak, before: linebreakIndex) != .delimiter(","),
+                       case let lineStart = formatter.startOfLine(at: i, excludingIndent: true),
+                       !formatter.tokens[lineStart].isEndOfScope
                     {
                         indent += formatter.options.indent
                     }
@@ -2307,9 +2311,17 @@ public struct _FormatRules {
                 {
                     return
                 }
-                if let nextNonLinebreak = formatter.next(.nonSpaceOrComment, after: closingIndex) {
+                let nextNonLinebreak = formatter.next(.nonSpaceOrComment, after: closingIndex)
+                if let index = formatter.index(of: .nonSpaceOrCommentOrLinebreak, after: i),
+                   case .operator = formatter.tokens[index]
+                {
+                    if nextToken.isOperator(".") || (index == i + 1 &&
+                        formatter.token(at: i - 1)?.isSpaceOrCommentOrLinebreak == false)
+                    {
+                        return
+                    }
                     switch nextNonLinebreak {
-                    case .startOfScope("["), .startOfScope("("), .operator(_, .postfix):
+                    case .startOfScope("[")?, .startOfScope("(")?, .operator(_, .postfix)?:
                         return
                     default:
                         break
@@ -2318,10 +2330,13 @@ public struct _FormatRules {
                 guard formatter.index(of: .nonSpaceOrCommentOrLinebreak, after: i) != closingIndex,
                       formatter.index(in: i + 1 ..< closingIndex, where: {
                           switch $0 {
-                          case .operator(".", _):
-                              return false
-                          case .operator, .keyword("as"), .keyword("is"), .keyword("try"):
+                          case .operator(_, .none):
+                              return true
+                          case .operator(_, .infix), .keyword("as"), .keyword("is"), .keyword("try"):
                               switch token {
+                              // TODO: add option to always strip parens in this case (or only for boolean operators?)
+                              case .operator("=", .infix) where $0 == .operator("->", .infix):
+                                  break
                               case .operator(_, .prefix), .operator(_, .infix), .keyword("as"), .keyword("is"):
                                   return true
                               default:
@@ -2329,6 +2344,19 @@ public struct _FormatRules {
                               }
                               switch nextToken {
                               case .operator(_, .postfix), .operator(_, .infix), .keyword("as"), .keyword("is"):
+                                  return true
+                              default:
+                                  break
+                              }
+                              switch nextNonLinebreak {
+                              case .startOfScope("[")?, .startOfScope("(")?, .operator(_, .postfix)?:
+                                  return true
+                              default:
+                                  return false
+                              }
+                          case .operator(_, .postfix):
+                              switch token {
+                              case .operator(_, .prefix), .keyword("as"), .keyword("is"):
                                   return true
                               default:
                                   return false
@@ -3324,6 +3352,9 @@ public struct _FormatRules {
                         return
                     case .endOfScope("}"), .startOfScope("{"):
                         return
+                    case .endOfScope("]"):
+                        // TODO: handle unused capture list arguments
+                        index = formatter.index(of: .startOfScope("["), before: index) ?? index
                     case .endOfScope(")"):
                         argCountStack.append(argNames.count)
                     case .startOfScope("("):
@@ -5224,7 +5255,8 @@ public struct _FormatRules {
         disabledByDefault: true,
         orderAfter: ["extensionAccessControl", "redundantFileprivate"],
         options: ["categorymark", "beforemarks", "lifecycle", "organizetypes",
-                  "structthreshold", "classthreshold", "enumthreshold", "extensionlength"]
+                  "structthreshold", "classthreshold", "enumthreshold", "extensionlength"],
+        sharedOptions: ["lineaftermarks"]
     ) { formatter in
         guard !formatter.options.fragment else { return }
 
@@ -5360,7 +5392,8 @@ public struct _FormatRules {
         help: "Adds a mark comment before top-level types and extensions.",
         runOnceOnly: true,
         disabledByDefault: true,
-        options: ["marktypes", "typemark", "markextensions", "extensionmark", "groupedextension"]
+        options: ["marktypes", "typemark", "markextensions", "extensionmark", "groupedextension"],
+        sharedOptions: ["lineaftermarks"]
     ) { formatter in
         var declarations = formatter.parseDeclarations()
 
@@ -5530,7 +5563,8 @@ public struct _FormatRules {
                 }
 
                 // Insert the expected comment at the start of the declaration
-                openingFormatter.insert(tokenize("\(expectedComment)\n\n"), at: markInsertIndex)
+                let endMarkDeclaration = formatter.options.lineAfterMarks ? "\n\n" : "\n"
+                openingFormatter.insert(tokenize("\(expectedComment)\(endMarkDeclaration)"), at: markInsertIndex)
 
                 // If the previous declaration doesn't end in a blank line,
                 // add an additional linebreak to balance the mark.
