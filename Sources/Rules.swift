@@ -1260,7 +1260,9 @@ public struct _FormatRules {
                        let linebreakIndex = formatter.tokens[scopeStart ..< prevIndex].firstIndex(where: {
                            $0.isLinebreak
                        }),
-                       formatter.last(.nonSpaceOrCommentOrLinebreak, before: linebreakIndex) != .delimiter(",")
+                       formatter.last(.nonSpaceOrCommentOrLinebreak, before: linebreakIndex) != .delimiter(","),
+                       case let lineStart = formatter.startOfLine(at: i, excludingIndent: true),
+                       !formatter.tokens[lineStart].isEndOfScope
                     {
                         indent += formatter.options.indent
                     }
@@ -2312,12 +2314,17 @@ public struct _FormatRules {
                         break
                     }
                 }
+                if let index = formatter.index(of: .nonSpaceOrCommentOrLinebreak, after: i),
+                   case .operator = formatter.tokens[index], nextToken.isOperator(".") ||
+                   (index == i + 1 && formatter.token(at: i - 1)?.isSpaceOrCommentOrLinebreak == false)
+                {
+                    return
+                }
                 guard formatter.index(of: .nonSpaceOrCommentOrLinebreak, after: i) != closingIndex,
                       formatter.index(in: i + 1 ..< closingIndex, where: {
                           switch $0 {
-                          case .operator(".", _):
-                              return false
-                          case .operator, .keyword("as"), .keyword("is"), .keyword("try"):
+                          case .operator(_, .postfix), .operator(_, .infix), .operator(_, .none),
+                               .keyword("as"), .keyword("is"), .keyword("try"):
                               switch token {
                               case .operator(_, .prefix), .operator(_, .infix), .keyword("as"), .keyword("is"):
                                   return true
@@ -3321,6 +3328,9 @@ public struct _FormatRules {
                         return
                     case .endOfScope("}"), .startOfScope("{"):
                         return
+                    case .endOfScope("]"):
+                        // TODO: handle unused capture list arguments
+                        index = formatter.index(of: .startOfScope("["), before: index) ?? index
                     case .endOfScope(")"):
                         argCountStack.append(argNames.count)
                     case .startOfScope("("):
